@@ -1,6 +1,6 @@
 import { Construct, Stack, Duration } from "@aws-cdk/core";
 import { Vpc, SecurityGroup, Connections, Port } from "@aws-cdk/aws-ec2";
-import { Cluster, ContainerImage, Protocol, FargateService, TaskDefinition, Compatibility } from "@aws-cdk/aws-ecs";
+import { Cluster, ContainerImage, Protocol, FargateService, TaskDefinition, Compatibility, FargatePlatformVersion } from "@aws-cdk/aws-ecs";
 import { DockerImageAsset } from "@aws-cdk/aws-ecr-assets";
 import { ApplicationLoadBalancedFargateService } from "@aws-cdk/aws-ecs-patterns";
 import { CfnCacheCluster, CfnSubnetGroup } from "@aws-cdk/aws-elasticache";
@@ -62,6 +62,7 @@ export class ApplicationStack extends Stack {
       assignPublicIp: false,
       domainZone: zone,
       domainName: 'image',
+      platformVersion: FargatePlatformVersion.VERSION1_4
     });
     imageService.service.autoScaleTaskCount({
       minCapacity: 1,
@@ -97,7 +98,8 @@ export class ApplicationStack extends Stack {
       desiredCount: 1,
       assignPublicIp: false,
       domainZone: zone,
-      domainName: 'catalog'
+      domainName: 'catalog',
+      platformVersion: FargatePlatformVersion.VERSION1_4
     });
     catalogService.taskDefinition.addContainer("xray-daemon", {
       image: ContainerImage.fromRegistry("amazon/aws-xray-daemon")
@@ -131,7 +133,8 @@ export class ApplicationStack extends Stack {
       desiredCount: 1,
       assignPublicIp: false,
       domainZone: zone,
-      domainName: 'cart'
+      domainName: 'cart',
+      platformVersion: FargatePlatformVersion.VERSION1_4
     });
     cartService.taskDefinition.addContainer("xray-daemon", {
       image: ContainerImage.fromRegistry("amazon/aws-xray-daemon")
@@ -166,7 +169,8 @@ export class ApplicationStack extends Stack {
       desiredCount: 1,
       assignPublicIp: false,
       domainZone: zone,
-      domainName: 'order'
+      domainName: 'order',
+      platformVersion: FargatePlatformVersion.VERSION1_4
     });
     orderService.taskDefinition.addContainer("xray-daemon", {
       image: ContainerImage.fromRegistry("amazon/aws-xray-daemon")
@@ -199,7 +203,8 @@ export class ApplicationStack extends Stack {
       desiredCount: 2,
       assignPublicIp: false,
       domainZone: zone,
-      domainName: 'recommender'
+      domainName: 'recommender',
+      platformVersion: FargatePlatformVersion.VERSION1_4
     });
     recommenderService.taskDefinition.addContainer("xray-daemon", {
       image: ContainerImage.fromRegistry("amazon/aws-xray-daemon")
@@ -236,6 +241,7 @@ export class ApplicationStack extends Stack {
         }
       },
       desiredCount: 1,
+      platformVersion: FargatePlatformVersion.VERSION1_4
     });
     frontendService.taskDefinition.addContainer("xray-daemon", {
       image: ContainerImage.fromRegistry("amazon/aws-xray-daemon")
@@ -247,7 +253,7 @@ export class ApplicationStack extends Stack {
     frontendService.taskDefinition.taskRole.addManagedPolicy(
 			ManagedPolicy.fromAwsManagedPolicyName('AWSXRayDaemonWriteAccess')
     );
-    frontendService.targetGroup.configureHealthCheck({ path: "/healthz", healthyHttpCodes: '200-499' });
+    frontendService.targetGroup.configureHealthCheck({ path: "/healthz" });
     frontendService.service.connections.allowToDefaultPort(cacheConnection);
 
     const loadGeneratorImage = new DockerImageAsset(this, 'LoadGeneratorImage', {
