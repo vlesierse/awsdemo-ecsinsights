@@ -200,7 +200,7 @@ export class ApplicationStack extends Stack {
           "CATALOG_ENDPOINT": 'catalog.' + zone.zoneName,
         },
       },
-      desiredCount: 2,
+      desiredCount: 1,
       assignPublicIp: false,
       domainZone: zone,
       domainName: 'recommender',
