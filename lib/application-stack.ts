@@ -1,9 +1,10 @@
 import { Construct, Stack, Duration } from "@aws-cdk/core";
-import { Vpc, SecurityGroup, Connections, Port } from "@aws-cdk/aws-ec2";
-import { Cluster, ContainerImage, Protocol, FargateService, TaskDefinition, Compatibility, FargatePlatformVersion } from "@aws-cdk/aws-ecs";
+import { Vpc, SecurityGroup, Connections, Port, InstanceType } from "@aws-cdk/aws-ec2";
+import { Cluster, ContainerImage, Protocol, Ec2Service, TaskDefinition, Compatibility, FargatePlatformVersion } from "@aws-cdk/aws-ecs";
 import { DockerImageAsset } from "@aws-cdk/aws-ecr-assets";
 import { ApplicationLoadBalancedFargateService } from "@aws-cdk/aws-ecs-patterns";
 import { CfnCacheCluster, CfnSubnetGroup } from "@aws-cdk/aws-elasticache";
+import { AdjustmentType } from "@aws-cdk/aws-autoscaling";
 import { PrivateHostedZone } from "@aws-cdk/aws-route53";
 
 import * as path from 'path';
@@ -17,6 +18,20 @@ export class ApplicationStack extends Stack {
     const cluster = new Cluster(this, 'Cluster', {
       vpc: vpc,
       containerInsights: true
+    });
+    cluster.addCapacity('default', {
+      instanceType: new InstanceType("t3.medium"),
+      minCapacity: 1,
+      maxCapacity: 10,
+      desiredCapacity: 1
+    }).scaleOnMetric('cpu', {
+      metric: cluster.metricCpuReservation(),
+      adjustmentType: AdjustmentType.CHANGE_IN_CAPACITY,
+      scalingSteps: [
+        { upper: 10, change: -1 },
+        { lower: 50, change: +1 },
+        { lower: 70, change: +3 },
+      ],
     });
     const zone = new PrivateHostedZone(this, 'HostedZone', {
       zoneName: 'anycompany.local',
@@ -260,7 +275,7 @@ export class ApplicationStack extends Stack {
       directory: path.join(__dirname, '../src/loadgen')
     });
     const LoadGeneratorTaskDefinition = new TaskDefinition(this, 'LoadGeneratorTaskDefinition', {
-      compatibility: Compatibility.FARGATE,
+      compatibility: Compatibility.EC2,
       memoryMiB: '1024',
       cpu: '512',
     });
@@ -268,9 +283,11 @@ export class ApplicationStack extends Stack {
       image: ContainerImage.fromDockerImageAsset(loadGeneratorImage),
       environment: {
         'FRONTEND_ADDR': frontendService.loadBalancer.loadBalancerDnsName
-      }
+      },
+      memoryReservationMiB: 1024,
+      cpu: 512,
     });
-    new FargateService(this, 'LoadGenerator', {
+    new Ec2Service(this, 'LoadGenerator', {
       serviceName: 'loadgenerator',
       cluster, 
       taskDefinition: LoadGeneratorTaskDefinition,

@@ -1,0 +1,20 @@
+version: 0.2
+env:
+  variables:
+    AWS_ACCOUNT_ID: 12345678
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building the Docker image...          
+      - docker build -t ecsinsights/recommender:$CODEBUILD_BUILD_NUMBER -f src/recommenderservice/Dockerfile src/recommenderservice
+      - docker tag $ecsinsights/recommender:$CODEBUILD_BUILD_NUMBER $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/ecsinsights/recommender:$CODEBUILD_BUILD_NUMBER      
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker image...
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/ecsinsights/recommender:$CODEBUILD_BUILD_NUMBER
