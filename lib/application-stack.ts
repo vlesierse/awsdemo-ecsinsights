@@ -5,10 +5,10 @@ import { DockerImageAsset } from "@aws-cdk/aws-ecr-assets";
 import { ApplicationLoadBalancedFargateService } from "@aws-cdk/aws-ecs-patterns";
 import { CfnCacheCluster, CfnSubnetGroup } from "@aws-cdk/aws-elasticache";
 import { AdjustmentType } from "@aws-cdk/aws-autoscaling";
-import { PrivateHostedZone } from "@aws-cdk/aws-route53";
 
 import * as path from 'path';
 import { ManagedPolicy } from "@aws-cdk/aws-iam";
+import { PrivateDnsNamespace, Service, RoutingPolicy } from "@aws-cdk/aws-servicediscovery";
 
 export class ApplicationStack extends Stack {
   constructor(scope: Construct, id: string) {
@@ -33,8 +33,8 @@ export class ApplicationStack extends Stack {
         { lower: 70, change: +3 },
       ],
     });
-    const zone = new PrivateHostedZone(this, 'HostedZone', {
-      zoneName: 'anycompany.local',
+    const cloudMapNamespace = new PrivateDnsNamespace(this, 'Namespace', {
+      name: 'anycompany.internal',
       vpc
     });
 
@@ -75,14 +75,12 @@ export class ApplicationStack extends Stack {
       },
       desiredCount: 1,
       assignPublicIp: false,
-      domainZone: zone,
-      domainName: 'image',
       platformVersion: FargatePlatformVersion.VERSION1_4
     });
     imageService.service.autoScaleTaskCount({
       minCapacity: 1,
       maxCapacity: 10,
-    }).scaleOnCpuUtilization('CpuScaling', {
+    }).scaleOnCpuUtilization('CpuScaling', { 
       targetUtilizationPercent: 40,
     });
     imageService.taskDefinition.addContainer("xray-daemon", {
@@ -96,6 +94,7 @@ export class ApplicationStack extends Stack {
 			ManagedPolicy.fromAwsManagedPolicyName('AWSXRayDaemonWriteAccess')
     );
     imageService.targetGroup.configureHealthCheck({ path: "/healthz", unhealthyThresholdCount: 3, timeout: Duration.seconds(10) });
+    cloudMapNamespace.createService('image', { loadBalancer: true, name: 'image' }).registerLoadBalancer('lb', imageService.loadBalancer);
 
     // Catalog Service
     const catalogServiceImage = new DockerImageAsset(this, 'CatalogServiceImage', {
@@ -112,8 +111,6 @@ export class ApplicationStack extends Stack {
       },
       desiredCount: 1,
       assignPublicIp: false,
-      domainZone: zone,
-      domainName: 'catalog',
       platformVersion: FargatePlatformVersion.VERSION1_4
     });
     catalogService.taskDefinition.addContainer("xray-daemon", {
@@ -127,6 +124,7 @@ export class ApplicationStack extends Stack {
 			ManagedPolicy.fromAwsManagedPolicyName('AWSXRayDaemonWriteAccess')
     );
     catalogService.targetGroup.configureHealthCheck({ path: "/api/v1/healthz" });
+    cloudMapNamespace.createService('catalog', { loadBalancer: true, name: 'catalog' }).registerLoadBalancer('lb', catalogService.loadBalancer);
 
     // Cart Service
     const cartServiceImage = new DockerImageAsset(this, 'CartServiceImage', {
@@ -142,13 +140,11 @@ export class ApplicationStack extends Stack {
         containerPort: 8080,
         environment: {
           "REDIS_ENDPOINT": "redis://" + cacheCluster.attrRedisEndpointAddress + ":" + cacheCluster.attrRedisEndpointPort + "/0",
-          "CATALOG_ENDPOINT": 'catalog.' + zone.zoneName,
+          "CATALOG_ENDPOINT": 'catalog.' + cloudMapNamespace.namespaceName,
         },
       },
       desiredCount: 1,
       assignPublicIp: false,
-      domainZone: zone,
-      domainName: 'cart',
       platformVersion: FargatePlatformVersion.VERSION1_4
     });
     cartService.taskDefinition.addContainer("xray-daemon", {
@@ -163,6 +159,7 @@ export class ApplicationStack extends Stack {
     );
     cartService.targetGroup.configureHealthCheck({ path: "/api/v1/healthz" });
     cartService.service.connections.allowToDefaultPort(cacheConnection);
+    cloudMapNamespace.createService('cart', { loadBalancer: true, name: 'cart' }).registerLoadBalancer('lb', cartService.loadBalancer);
 
     // Order Service
     const orderServiceImage = new DockerImageAsset(this, 'OrderServiceImage', {
@@ -177,14 +174,12 @@ export class ApplicationStack extends Stack {
         image: ContainerImage.fromDockerImageAsset(orderServiceImage),
         containerPort: 8080,
         environment: {
-          "CART_ENDPOINT": 'cart.' + zone.zoneName,
-          "CATALOG_ENDPOINT": 'catalog.' + zone.zoneName,
+          "CART_ENDPOINT": 'cart.' + cloudMapNamespace.namespaceName,
+          "CATALOG_ENDPOINT": 'catalog.' + cloudMapNamespace.namespaceName,
         },
       },
       desiredCount: 1,
       assignPublicIp: false,
-      domainZone: zone,
-      domainName: 'order',
       platformVersion: FargatePlatformVersion.VERSION1_4
     });
     orderService.taskDefinition.addContainer("xray-daemon", {
@@ -198,6 +193,7 @@ export class ApplicationStack extends Stack {
 			ManagedPolicy.fromAwsManagedPolicyName('AWSXRayDaemonWriteAccess')
     );
     orderService.targetGroup.configureHealthCheck({ path: "/api/v1/healthz" });
+    cloudMapNamespace.createService('order', { loadBalancer: true, name: 'order' }).registerLoadBalancer('lb', orderService.loadBalancer);
 
     // Recommender Service
     const recommenderServiceImage = new DockerImageAsset(this, 'RecommenderServiceImage', {
@@ -212,13 +208,11 @@ export class ApplicationStack extends Stack {
         image: ContainerImage.fromDockerImageAsset(recommenderServiceImage),
         containerPort: 8080,
         environment: {
-          "CATALOG_ENDPOINT": 'catalog.' + zone.zoneName,
+          "CATALOG_ENDPOINT": 'catalog.' + cloudMapNamespace.namespaceName,
         },
       },
       desiredCount: 1,
       assignPublicIp: false,
-      domainZone: zone,
-      domainName: 'recommender',
       platformVersion: FargatePlatformVersion.VERSION1_4
     });
     recommenderService.taskDefinition.addContainer("xray-daemon", {
@@ -232,6 +226,7 @@ export class ApplicationStack extends Stack {
 			ManagedPolicy.fromAwsManagedPolicyName('AWSXRayDaemonWriteAccess')
     );
     recommenderService.targetGroup.configureHealthCheck({ path: "/api/v1/healthz" });
+    cloudMapNamespace.createService('recommender', { loadBalancer: true, name: 'recommender' }).registerLoadBalancer('lb', recommenderService.loadBalancer);
 
     
     // Frontend Service
@@ -248,11 +243,11 @@ export class ApplicationStack extends Stack {
         containerPort: 8080,
         environment: {
           "REDIS_ENDPOINT": "redis://" + cacheCluster.attrRedisEndpointAddress + ":" + cacheCluster.attrRedisEndpointPort + "/0",
-          "IMAGE_ENDPOINT": 'image.' + zone.zoneName,
-          "CATALOG_ENDPOINT": 'catalog.' + zone.zoneName,
-          "CART_ENDPOINT": 'cart.' + zone.zoneName,
-          "ORDER_ENDPOINT": 'order.' + zone.zoneName,
-          "RECOMMENDER_ENDPOINT": 'recommender.' + zone.zoneName,
+          "IMAGE_ENDPOINT": 'image.' + cloudMapNamespace.namespaceName,
+          "CATALOG_ENDPOINT": 'catalog.' + cloudMapNamespace.namespaceName,
+          "CART_ENDPOINT": 'cart.' + cloudMapNamespace.namespaceName,
+          "ORDER_ENDPOINT": 'order.' + cloudMapNamespace.namespaceName,
+          "RECOMMENDER_ENDPOINT": 'recommender.' + cloudMapNamespace.namespaceName,
         }
       },
       desiredCount: 1,
