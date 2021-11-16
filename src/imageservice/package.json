@@ -11,7 +11,7 @@
     "start": "nodemon -r dotenv/config ./bin/www"
   },
   "dependencies": {
-    "aws-sdk": "^2.489.0",
+    "aws-sdk": "^2.814.0",
     "aws-xray-sdk": "^2.5.0",
     "body-parser": "~1.19.0",
     "debug": "~4.1.1",
